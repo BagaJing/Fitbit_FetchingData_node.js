@@ -1,37 +1,39 @@
-// initialize the express application
-const express = require("express");
-const app = express();
+   // the same function with index.js
+    var FitbitClient = require('fitbit-client-oauth2');
+    var express= require('express');
+    var app= express();
+    var client = new FitbitClient('22DCGZ', '3c1114725f32640d4fe7579fdf1ac67d' );
+    
+  var redirect_uri = 'https://s3.amazonaws.com/arkafit/index.html';
+    var scope =  'activity nutrition profile settings sleep social weight';
+    
+    app.get('/auth/fitbit', function(req, res, next) {
+    
+        var authorization_uri = client.getAuthorizationUrl(redirect_uri, scope);
+        
+        res.redirect(authorization_uri);
+    });
+    
+    // If /auth/fitbit/callbac is your redirec_uri
+    
+    app.get('/auth/fitbit/callback', function(req, res, next) {
+    
+        var code = req.query.code;
+        
+        client.getToken(code, redirect_uri)
+            .then(function(token) {
 
-// initialize the Fitbit API client
-const FitbitApiClient = require("fitbit-node");
-var CLIENT_ID = '22DCGZ';
-var CLIENT_SECRET = 'df7da6616e9fbba120234353abfb8227';
-const client = new FitbitApiClient({
-	clientId: "YOUR_CLIENT_ID",
-	clientSecret: "YOUR_CLIENT_SECRET",
-	apiVersion: '1.2' // 1.2 is the default
-});
+                // ... save your token on db or session... 
+                
+                // then redirect
+                res.redirect(302, '/user');
 
-// redirect the user to the Fitbit authorization page
-app.get("/authorize", (req, res) => {
-	// request access to the user's activity, heartrate, location, nutrion, profile, settings, sleep, social, and weight scopes
-	res.redirect(client.getAuthorizeUrl('activity heartrate location nutrition profile settings sleep social weight', 'YOUR_CALLBACK_URL'));
-});
-
-// handle the callback from the Fitbit authorization flow
-app.get("/callback", (req, res) => {
-	// exchange the authorization code we just received for an access token
-	client.getAccessToken(req.query.code, 'YOUR_CALLBACK_URL').then(result => {
-		// use the access token to fetch the user's profile information
-		client.get("/profile.json", result.access_token).then(results => {
-			res.send(results[0]);
-		}).catch(err => {
-			res.status(err.status).send(err);
-		});
-	}).catch(err => {
-		res.status(err.status).send(err);
-	});
-});
-
-// launch the server
+            })
+            .catch(function(err) {
+                // something went wrong.
+                res.send(500, err);
+            
+            });
+    
+    });
 app.listen(3000);
