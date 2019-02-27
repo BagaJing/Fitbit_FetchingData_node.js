@@ -1,12 +1,16 @@
 var FitbitApiClient= require('fitbit-node');
 var express = require('express');
+var router= express.Router();
 var app= express();
 var config = require('config');
 var cookieParser = require('cookie-parser');
+var Parse= require('parse');
 //var router = express.Router();
 //var http = require('http');
 var CLIENT_ID = '22DCGZ';
-var CLIENT_SECRET = 'df7da6616e9fbba120234353abfb8227';
+var CLIENT_SECRET = '3c1114725f32640d4fe7579fdf1ac67d';
+var CODE= '21453870d2fb2ee8cec6e46e3c04e06931ae4aa7';
+router.use(cookieParser());
 
 var fitbit = new FitbitApiClient({
     clientId: CLIENT_ID,
@@ -14,116 +18,46 @@ var fitbit = new FitbitApiClient({
     apiVersion: '1.2'
 });
 
-app.get('/auth/:userId', function (req, res) {
+// parse objects
+var Notification = Parse.Object.extend('HC_notification');
+var SensorSubscription = Parse.Object.extend('HC_sensor_subscription');
+var URL= fitbit.getAuthorizeUrl(
+        'activity heartrate location nutrition profile settings sleep social weight',config.serverURL,'login'
+        );
+//,'login cosent'
+app.use('/',router);
 
-    res.cookie('fitbitUser', req.params.userId);
-    res.send('here is test: '+fitbit.getAuthorizeUrl(
-        'activity heartrate location nutrition profile settings sleep social weight',
-        config.serverURL + '/sensors/fitbit/callback'));
+router.get('/debug', (req,res)=>{
+	res.send('the URL is '+URL);
+});
+
+router.get('/auth/:userId',(req, res) => {
+
+  //  res.cookie('fitbitUser', req.params.userId);
 
     //TODO: BECAUSE THIS REDIRECTS TO NUCOACH, IT CAUSES A PROBLEM IN COOKIES. update the app.
-    res.redirect(fitbit.getAuthorizeUrl(
-        'activity heartrate location nutrition profile settings sleep social weight',
-        config.serverURL + '/sensors/fitbit/callback'));
+    res.redirect(URL); 
+        //+ '/sensors/fitbit/callback'
+
+   // res.send(fitbit.getAccessToken(req.query.code,)); 
+
 
 });
-/**
- * create subscription, once the callback is called.
- */
-app.get('/callback', function (req, res) {
-
-    var userId = req.cookies.fitbitUser || -1;
 
 
-    fitbit.getAccessToken(req.query.code, config.serverURL + '/sensors/fitbit/callback').then(function (result) {
-        // use the access token to fetch the user's profile information
+router.get("/callback", (req, res) => {
+	// exchange the authorization code we just received for an access token
 
-        // if we are here, we have the token and user ID
-        new Parse.Query(Parse.User)
-            .include('personalProfile.fitbit')
-            .get(userId, {
-                useMasterKey: true,
-                success: function (user) {
-                    // success
-                    if (user) {
-                        // user exist
-                        console.log('user exist');
-                        if (user.get('personalProfile').get('fitbit')) {
-                            console.log('fitbit subscription already exist, update the token');
-                            user.get('personalProfile').get('fitbit').set('auth', result)
-                                .save(null, {
-                                    useMasterKey: true,
-                                    success: function () {
-                                        new Notification()
-                                            .set('user', user)
-                                            .set('title', 'NUcoach')
-                                            .set('body', 'Successfully updated your Fitbit subscription.')
-                                            .save(null, {useMasterKey: true});
-
-                                        res.send('successfully updated your Fitbit subscription. You may close this window');
-                                    }, error: function (o, e) {
-                                        res.send(e);
-                                    }
-                                });
-                        } else {
-                            // fitbit subscription does not exist, create one
-                            var sub = new SensorSubscription();
-                            sub.set('user', user)
-                                .set('sensor', {
-                                    "__type": "Pointer",
-                                    "className": "DHL_sensor",
-                                    "objectId": "XIfI16u3hb"
-                                })
-                                .set('auth', result)
-                                .set('deleted', false);
-
-                            var acl = new Parse.ACL(user);
-
-                            // let the sensorSubscriptions role read the subscriptions.
-                            acl.setRoleReadAccess('sensorSubscriptions', true);
-
-                            sub.setACL(acl);
-
-                            sub.save(null, {
-                                useMasterKey: true,
-                                success: function (newSubscription) {
-                                    // subscription created
-                                    user.get('personalProfile').set('fitbit', newSubscription)
-                                        .save(null, {
-                                            useMasterKey: true,
-                                            success: function () {
-
-                                                new Notification()
-                                                    .set('user', user)
-                                                    .set('title', 'NUcoach')
-                                                    .set('body', 'Successfully linked your Fitbit account.')
-                                                    .save(null, {useMasterKey: true});
-
-                                                res.send('successfully linked your Fitbit account. You may close this window');
-                                            }, error: function (o, e) {
-                                                res.send(e);
-                                            }
-                                        });
-                                },
-                                error: function (o, e) {
-                                    res.send(e);
-                                }
-                            });
-                        }
-                    } else {
-                        res.send('User does not exist');
-                    }
-                }, error: function (u, e) {
-                    // cant get the user
-                    res.send(e);
-                }
-            });
-
-    }).catch(function (error) {
-        res.send(error);
-    });
-
-
+	fitbit.getAccessToken(req.query.URL, config.serverURL).then(result => {
+		// use the access token to fetch the user's profile information
+		fitbit.get("/profile.json", result.access_token).then(results => {
+			res.send(results[0]);
+		}).catch(err => {
+			res.status(err.status).send(err);
+		});
+	}).catch(err => {
+		res.status(err.status).send(err);
+	});
 });
 app.listen(3000);
 console.log('Server running at http://127.0.0.1:3000/');
