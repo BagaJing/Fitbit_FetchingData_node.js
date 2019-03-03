@@ -1,17 +1,17 @@
 
 //var router = express.Router();
 //var http = require('http');
-var CLIENT_ID = '22DCGZ';
 var FitbitApiClient= require('fitbit-node');
 var express = require('express');
 var router= express.Router();
 var app= express();
-var config = require('server-config');
-var Parse= require('parse');
+//var config = require('server-config');
+//var Parse= require('parse');
 var cookieParser = require('cookie-parser');
-var CLIENT_SECRET = '3c1114725f32640d4fe7579fdf1ac67d';
+var CLIENT_ID = '';
+var CLIENT_SECRET = '';
 var mongoose = require('mongoose');
-	mongoose.connect('mongodb+srv://Jing:tyYChHhwpYtmD0XY@cluster0-fh0jl.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
+	mongoose.connect('mongodb+srv://<User><Password>.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
 var db = mongoose.connection;
     db.on('error', console.error.bind(console, 'connection error:'));
     db.once('open', function (callback) {
