@@ -1,129 +1,110 @@
-var FitbitApiClient= require('fitbit-node');
-var express = require('express');
-var app= express();
-var config = require('config');
-var cookieParser = require('cookie-parser');
+
 //var router = express.Router();
 //var http = require('http');
 var CLIENT_ID = '22DCGZ';
-var CLIENT_SECRET = 'df7da6616e9fbba120234353abfb8227';
-
+var FitbitApiClient= require('fitbit-node');
+var express = require('express');
+var router= express.Router();
+var app= express();
+var config = require('server-config');
+var Parse= require('parse');
+var cookieParser = require('cookie-parser');
+var CLIENT_SECRET = '3c1114725f32640d4fe7579fdf1ac67d';
+var mongoose = require('mongoose');
+	mongoose.connect('mongodb+srv://Jing:tyYChHhwpYtmD0XY@cluster0-fh0jl.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
+var db = mongoose.connection;
+    db.on('error', console.error.bind(console, 'connection error:'));
+    db.once('open', function (callback) {
+    console.log("MongoDB Opened!");
+    });
+var profile = mongoose.Schema({
+     access_token:{type:String},
+     refresh_token:{type:String},
+     userID:{type:String},
+     name:{type:String},
+     gender:{type:String},
+     DailySteps:{type:Number},
+     DailySleep:{type:Number},
+     AverageHR:{type:Number}
+    });
+var profileModel = mongoose.model('profile',profile);
 var fitbit = new FitbitApiClient({
     clientId: CLIENT_ID,
     clientSecret: CLIENT_SECRET,
     apiVersion: '1.2'
 });
 
-app.get('/auth/:userId', function (req, res) {
+app.use('/',router);
+router.use(cookieParser());
+router.get('/auth/:userId',(req, res) => {
 
-    res.cookie('fitbitUser', req.params.userId);
-    res.send('here is test: '+fitbit.getAuthorizeUrl(
-        'activity heartrate location nutrition profile settings sleep social weight',
-        config.serverURL + '/sensors/fitbit/callback'));
+    //res.cookie('fitbitUser', req.params.userId);
 
-    //TODO: BECAUSE THIS REDIRECTS TO NUCOACH, IT CAUSES A PROBLEM IN COOKIES. update the app.
     res.redirect(fitbit.getAuthorizeUrl(
-        'activity heartrate location nutrition profile settings sleep social weight',
-        config.serverURL + '/sensors/fitbit/callback'));
-
+        'activity heartrate location nutrition profile settings sleep social weight',config.serverURL,'login cosent'
+        )); 
 });
-/**
- * create subscription, once the callback is called.
- */
-app.get('/callback', function (req, res) {
 
-    var userId = req.cookies.fitbitUser || -1;
+router.get("/callback", (req, res) => {
+	//var userId = req.cookies.fitbitUser||-1;
+	//console.log(userId);
+	fitbit.getAccessToken(req.query.code,config.serverURL).then(result => {
+		// when we are here, we get the access token and user ID// then we save the access in database
+		
+		// use the access token to fetch the user's information
+	fitbit.get("/profile.json", result.access_token).then(results => {
+		//before save to database, we need to check the user subscribe or not by checking userId in database
+		var checkId= results[0].user.encodedId;
+		profileModel.findOne({'userID':checkId},function(err,doc){
+					 if (doc) {
+					 		//user data is in database
+					 				console.log('user has followed');
+					 				res.send('Hello '+results[0].user.fullName+' !'
+					 							+'you have already followed our service!');
+					 } else{
+					 	  // user data is not in database, then save it.
+					 	  // init the helath data as 0 and update them later.
+							var saveprofile= new profileModel({ access_token:result.access_token,
+															    refresh_token:result.refresh_token,
+										   						userID:results[0].user.encodedId,
+										   						name:results[0].user.fullName,
+										   						gender:results[0].user.gender,
+										   						DailySteps:0,
+										   						DailySleep:0,
+										   						AverageHR:0});
+							//console.log('test: '+saveprofile.DailySteps);
+								saveprofile.save(function(err){
+																if(err) return console.error(err);
+																console.log("got new user!");
+																});
+									res.send('Hello '+results[0].user.fullName+' !'
+					 							+'You have subscribed our service! Now you can close this page!');
+					 		}		
+		});
 
+			//console.log(results[0].user.encodedId); test
 
-    fitbit.getAccessToken(req.query.code, config.serverURL + '/sensors/fitbit/callback').then(function (result) {
-        // use the access token to fetch the user's profile information
+		}).catch(err => {res.status(err.status).send(err);
 
-        // if we are here, we have the token and user ID
-        new Parse.Query(Parse.User)
-            .include('personalProfile.fitbit')
-            .get(userId, {
-                useMasterKey: true,
-                success: function (user) {
-                    // success
-                    if (user) {
-                        // user exist
-                        console.log('user exist');
-                        if (user.get('personalProfile').get('fitbit')) {
-                            console.log('fitbit subscription already exist, update the token');
-                            user.get('personalProfile').get('fitbit').set('auth', result)
-                                .save(null, {
-                                    useMasterKey: true,
-                                    success: function () {
-                                        new Notification()
-                                            .set('user', user)
-                                            .set('title', 'NUcoach')
-                                            .set('body', 'Successfully updated your Fitbit subscription.')
-                                            .save(null, {useMasterKey: true});
-
-                                        res.send('successfully updated your Fitbit subscription. You may close this window');
-                                    }, error: function (o, e) {
-                                        res.send(e);
-                                    }
-                                });
-                        } else {
-                            // fitbit subscription does not exist, create one
-                            var sub = new SensorSubscription();
-                            sub.set('user', user)
-                                .set('sensor', {
-                                    "__type": "Pointer",
-                                    "className": "DHL_sensor",
-                                    "objectId": "XIfI16u3hb"
-                                })
-                                .set('auth', result)
-                                .set('deleted', false);
-
-                            var acl = new Parse.ACL(user);
-
-                            // let the sensorSubscriptions role read the subscriptions.
-                            acl.setRoleReadAccess('sensorSubscriptions', true);
-
-                            sub.setACL(acl);
-
-                            sub.save(null, {
-                                useMasterKey: true,
-                                success: function (newSubscription) {
-                                    // subscription created
-                                    user.get('personalProfile').set('fitbit', newSubscription)
-                                        .save(null, {
-                                            useMasterKey: true,
-                                            success: function () {
-
-                                                new Notification()
-                                                    .set('user', user)
-                                                    .set('title', 'NUcoach')
-                                                    .set('body', 'Successfully linked your Fitbit account.')
-                                                    .save(null, {useMasterKey: true});
-
-                                                res.send('successfully linked your Fitbit account. You may close this window');
-                                            }, error: function (o, e) {
-                                                res.send(e);
-                                            }
-                                        });
-                                },
-                                error: function (o, e) {
-                                    res.send(e);
-                                }
-                            });
-                        }
-                    } else {
-                        res.send('User does not exist');
-                    }
-                }, error: function (u, e) {
-                    // cant get the user
-                    res.send(e);
-                }
-            });
-
-    }).catch(function (error) {
-        res.send(error);
-    });
-
-
+		});
+	       }).catch(err => {res.status(err.status).send(err);});
 });
+// the main function to updata subscriber data. work in progress
+var FitbitSync = function(subscriber){
+				console.log('UserId: '+subscriber.userID);
+				console.log('UserName: '+subscriber.name);
+				console.log("   ");
+
+}
+
+// an interval function to refresh data during a certain time. currently let it run a time for 10 minutes
+setInterval(function(){
+		profileModel.find({},(err,profiles)=>{
+		profiles.forEach((profileModel)=>{
+			FitbitSync(profileModel);
+		});
+	});
+},60000);
+
 app.listen(3000);
-console.log('Server running at http://127.0.0.1:3000/');
+console.log('Server running at http:localhost:3000/');
