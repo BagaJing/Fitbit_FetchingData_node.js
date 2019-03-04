@@ -1,17 +1,16 @@
 
-//var router = express.Router();
-//var http = require('http');
+
 var FitbitApiClient= require('fitbit-node');
 var express = require('express');
 var router= express.Router();
 var app= express();
-//var config = require('server-config');
-//var Parse= require('parse');
+var config = require('server-config');
 var cookieParser = require('cookie-parser');
+var moment = require('moment');
 var CLIENT_ID = '';
 var CLIENT_SECRET = '';
 var mongoose = require('mongoose');
-	mongoose.connect('mongodb+srv://<User><Password>.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
+	mongoose.connect('mongodb+srv://Jing:<password>.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
 var db = mongoose.connection;
     db.on('error', console.error.bind(console, 'connection error:'));
     db.once('open', function (callback) {
@@ -90,13 +89,33 @@ router.get("/callback", (req, res) => {
 	       }).catch(err => {res.status(err.status).send(err);});
 });
 // the main function to updata subscriber data. work in progress
-var FitbitSync = function(subscriber){
-				console.log('UserId: '+subscriber.userID);
-				console.log('UserName: '+subscriber.name);
+/*
+     access_token:{type:String},
+     refresh_token:{type:String},
+     userID:{type:String},
+     name:{type:String},
+     gender:{type:String},
+     DailySteps:{type:Number},
+     DailySleep:{type:Number},
+     AverageHR:{type:Number} 
+*/
+var FitbitSync = function(subscr){
+	// today date in YYYY-MM-DD format
+	var _day= moment().format('YYYY-MM-DD');
+	// copy a collection to change and check
+	var checkingprofile = new profileModel(subscr);
+
+	this.syncProfile =function(){
+	};
+	var _Getdata = function(path,subscriber){
+		fitbit.get(path,subscriber.access_token)
+	}
+				console.log('UserId: '+checkingprofile.userID);
+				console.log('access_token: '+checkingprofile.name);
+				console.log('Date: '+_day);
 				console.log("   ");
-
 }
-
+	
 // an interval function to refresh data during a certain time. currently let it run a time for 10 minutes
 setInterval(function(){
 		profileModel.find({},(err,profiles)=>{
@@ -104,7 +123,7 @@ setInterval(function(){
 			FitbitSync(profileModel);
 		});
 	});
-},60000);
+},6000);
 
 app.listen(3000);
 console.log('Server running at http:localhost:3000/');
