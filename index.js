@@ -1,11 +1,12 @@
 /*
 Author : Jing Kang
 start at: 27/2/2019
-today date: 4/3/2019
+today date: 5/3/2019
 status: in progress 
+
 */
 
-
+/*require packages*/
 var FitbitApiClient= require('fitbit-node');
 var express = require('express');
 var router= express.Router();
@@ -13,10 +14,19 @@ var app= express();
 var config = require('server-config');
 var cookieParser = require('cookie-parser');
 var moment = require('moment');
-var CLIENT_ID = '2DCGZ';
+
+/*Fitbit CLient password*/
+var CLIENT_ID = '22DCGZ';
 var CLIENT_SECRET = '';
+var fitbit = new FitbitApiClient({
+    clientId: CLIENT_ID,
+    clientSecret: CLIENT_SECRET,
+    apiVersion: '1.2'
+});
+
+/*connect database and open*/
 var mongoose = require('mongoose');
-	mongoose.connect('mongodb+srv://Jing:@cluster0-fh0jl.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
+	mongoose.connect('mongodb+srv://Jing:password@cluster0-fh0jl.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
 var db = mongoose.connection;
     db.on('error', console.error.bind(console, 'connection error:'));
     db.once('open', function (callback) {
@@ -33,11 +43,12 @@ var profile = mongoose.Schema({
      AverageHR:{type:Number}
     });
 var profileModel = mongoose.model('profile',profile);
-var fitbit = new FitbitApiClient({
-    clientId: CLIENT_ID,
-    clientSecret: CLIENT_SECRET,
-    apiVersion: '1.2'
-});
+
+
+/*other variables*/
+
+//running turns
+var runTurns = 1;
 
 app.use('/',router);
 router.use(cookieParser());
@@ -122,13 +133,13 @@ var FitbitSync = function(subscr){
 			//First, we try to get the data with the current access token available.
 
 		fitbit.get("/profile.json",subscriber.access_token).then(function(result){
-			console.log('checking User '+subscriber.userID+' availability of access_token');
+			console.log('Checking User '+subscriber.userID+' availability of access_token');
 			// check the token first
 
 			if ((result[0].errors && result[0].errors.length > 0 && result[0].errors[0].errorType === 'expired_token')){
 				console.log('User '+subscriber.userID+' token expired, need to be refreshed');
-				fitbit.refreshAccessToken(subscriber.access_token,subscriber.refresh_token,28800).then(function(newtoken){
-					//console.log(newtoken); test
+				fitbit.refreshAccessToken(subscriber.access_token,subscriber.refresh_token).then(function(newtoken){
+					//console.log(newtoken);
 					subscriber.access_token = newtoken.access_token;
 					subscriber.refresh_token = newtoken.refresh_token;
 					needFresh = true;
@@ -136,7 +147,7 @@ var FitbitSync = function(subscr){
 					//console.log('successfully refresh tokens!');
 				},function(err){
 					console.log(subscriber.userID+'`s data is suffering a bug');
-					console.log(err);
+					console.log(err.context);
 				});
 
 			} else {
@@ -151,22 +162,50 @@ var FitbitSync = function(subscr){
 	// update activity data 
 	var _GetHealthData = function(subscriber){
 		var newSteps;
+		var stepSets;
+		var newSleep;
+		var sleepSets;
 		// fetch steps
 		fitbit.get('/activities/date/' +_day + '.json',subscriber.access_token).then(function(result){
 			if ((result[0].errors && result[0].errors.length > 0 && result[0].errors[0].errorType === 'expired_token')) {
-				cosole.log('token expired');
+				console.log('token expired');
 			}
-				newSteps = result[0].summary.steps;
-			if (newSteps!=subscriber.DailySteps) {
+				
+				stepSets = result[0]['summary'];
+				//console.log(stepSets);
+				if (stepSets==undefined) {
+					console.log('Fail to fetch user '+subscriber.userID+'`steps due to undefined');
+					newSteps=0;
+				} else{
+
+					newSteps = stepSets['steps'];
+				}
+				
+				///activities/heart/date/'+_day+'/1d/1sec.json
+				fitbit.get('/sleep/date/'+_day+'.json',subscriber.access_token).then(function(Sleep){
+							sleepSets = Sleep[0].summary;
+							//console.log(sleepSets);
+						if (sleepSets==undefined) {
+							console.log('Fail to fetch user '+subscriber.userID+'`sleep due to undefined');
+							newSleep = 0;
+						} else {
+							newSleep = sleepSets.totalMinutesAsleep;
+						}
+					if (newSteps!=subscriber.DailySteps||newSleep!=subscriber.DailySleep) {
 						needUpdate = true;
 						subscriber.DailySteps = newSteps;
-						console.log('User '+subscriber.userID+'`s DailySteps has been updated to '+subscriber.DailySteps);
+						subscriber.DailySleep = newSleep;
 						_updateDatabase(subscriber);
+						console.log('User '+subscriber.userID+'`s DailySteps has been updated to '+subscriber.DailySteps
+									+' totalAsleep time has been updated to'+subscriber.DailySleep);
 					} else if (needFresh) {
 						_updateDatabase(subscriber);
 					} else {
 						console.log('User '+subscriber.userID+' doesn`t need update');
 					}
+				},function(err){console.log(err)});
+
+
 		},function(err){console.log(err)});
 	
 	};
@@ -174,7 +213,7 @@ var FitbitSync = function(subscr){
 
 		//update the data when needUpdate == true
 	var _updateDatabase = function(subscriber){
-		console.log('updating is needed: ' + needUpdate);
+		console.log('User: '+subscriber.userID+'updating is needed: ' + needUpdate);
 		if (needUpdate) {
 			profileModel.updateOne({userID:subscriber.userID},{access_token:subscriber.access_token,
      														   refresh_token:subscriber.refresh_token,
@@ -185,7 +224,7 @@ var FitbitSync = function(subscr){
      														   AverageHR:subscriber.AverageHR},
 		function(err,docs){
 			if(err) console.log(err);
-			console.log('successfully update');
+			console.log('Successfully update for User '+subscriber.userID);
 		});
 		}
 
@@ -202,14 +241,49 @@ var FitbitSync = function(subscr){
 			    //console.log("   ");
 }
 	
-// an interval function to refresh data during a certain time. currently let it run a time for 10 minutes
+/*here is the end of function FitbitSync()*/
+
+
+/*a time-showing function to show current time in console*/
+function getDateTime(){
+	var date = new Date();
+
+    var hour = date.getHours();
+    hour = (hour < 10 ? "0" : "") + hour;
+
+    var min  = date.getMinutes();
+    min = (min < 10 ? "0" : "") + min;
+
+    var sec  = date.getSeconds();
+    sec = (sec < 10 ? "0" : "") + sec;
+
+    var year = date.getFullYear();
+
+    var month = date.getMonth() + 1;
+    month = (month < 10 ? "0" : "") + month;
+
+    var day  = date.getDate();
+    day = (day < 10 ? "0" : "") + day;
+
+    return year + "/" + month + "/" + day + "/" + hour + ":" + min + ":" + sec;
+
+}
+
+
+/* an interval function to refresh data during a certain time. currently let it run a time for half hour*/
 setInterval(function(){
+	console.log(" ");
+	console.log(" ");
+	console.log("Current sync process begin at "+getDateTime());
+	console.log("The "+runTurns+" turn after the server start.");
+	console.log(" ");
+	runTurns++;
 		profileModel.find({},(err,profiles)=>{
 		profiles.forEach((profileModel)=>{
 			new FitbitSync(profileModel).syncProfile();
 		});
 	});
-},10000);
-
+},1800000);
+//1800000
 app.listen(3000);
 console.log('Server running at http:localhost:3000/');
