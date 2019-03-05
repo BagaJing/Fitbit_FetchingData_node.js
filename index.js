@@ -13,10 +13,10 @@ var app= express();
 var config = require('server-config');
 var cookieParser = require('cookie-parser');
 var moment = require('moment');
-var CLIENT_ID = '22DCGZ';
-var CLIENT_SECRET = '3a73dff1a1dadf37b573f5267a5ea3bf';
+var CLIENT_ID = '2DCGZ';
+var CLIENT_SECRET = '';
 var mongoose = require('mongoose');
-	mongoose.connect('mongodb+srv://Jing:mVWIu5idFBrQO38d@cluster0-fh0jl.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
+	mongoose.connect('mongodb+srv://Jing:@cluster0-fh0jl.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
 var db = mongoose.connection;
     db.on('error', console.error.bind(console, 'connection error:'));
     db.once('open', function (callback) {
