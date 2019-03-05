@@ -1,3 +1,9 @@
+/*
+Author : Jing Kang
+start at: 27/2/2019
+today date: 4/3/2019
+status: in progress 
+*/
 
 
 var FitbitApiClient= require('fitbit-node');
@@ -7,10 +13,10 @@ var app= express();
 var config = require('server-config');
 var cookieParser = require('cookie-parser');
 var moment = require('moment');
-var CLIENT_ID = '';
-var CLIENT_SECRET = '';
+var CLIENT_ID = '22DCGZ';
+var CLIENT_SECRET = '3a73dff1a1dadf37b573f5267a5ea3bf';
 var mongoose = require('mongoose');
-	mongoose.connect('mongodb+srv://Jing:<password>.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
+	mongoose.connect('mongodb+srv://Jing:mVWIu5idFBrQO38d@cluster0-fh0jl.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
 var db = mongoose.connection;
     db.on('error', console.error.bind(console, 'connection error:'));
     db.once('open', function (callback) {
@@ -103,27 +109,107 @@ var FitbitSync = function(subscr){
 	// today date in YYYY-MM-DD format
 	var _day= moment().format('YYYY-MM-DD');
 	// copy a collection to change and check
-	var checkingprofile = new profileModel(subscr);
+	var checkingProfile = new profileModel(subscr);
+	//
+	var needUpdate = false;
+	//
+	var needFresh = false;
+
+
+
+	// // update activity data 
+	var _Getdata = function(subscriber){
+			//First, we try to get the data with the current access token available.
+
+		fitbit.get("/profile.json",subscriber.access_token).then(function(result){
+			console.log('checking User '+subscriber.userID+' availability of access_token');
+			// check the token first
+
+			if ((result[0].errors && result[0].errors.length > 0 && result[0].errors[0].errorType === 'expired_token')){
+				console.log('User '+subscriber.userID+' token expired, need to be refreshed');
+				fitbit.refreshAccessToken(subscriber.access_token,subscriber.refresh_token,28800).then(function(newtoken){
+					//console.log(newtoken); test
+					subscriber.access_token = newtoken.access_token;
+					subscriber.refresh_token = newtoken.refresh_token;
+					needFresh = true;
+					_GetHealthData(subscriber);
+					//console.log('successfully refresh tokens!');
+				},function(err){
+					console.log(subscriber.userID+'`s data is suffering a bug');
+					console.log(err);
+				});
+
+			} else {
+				console.log('User '+subscriber.userID+' Token is valid.');
+				_GetHealthData(subscriber);
+				
+			}
+		
+		},function(err){console.log(err)});
+	};
+
+	// update activity data 
+	var _GetHealthData = function(subscriber){
+		var newSteps;
+		// fetch steps
+		fitbit.get('/activities/date/' +_day + '.json',subscriber.access_token).then(function(result){
+			if ((result[0].errors && result[0].errors.length > 0 && result[0].errors[0].errorType === 'expired_token')) {
+				cosole.log('token expired');
+			}
+				newSteps = result[0].summary.steps;
+			if (newSteps!=subscriber.DailySteps) {
+						needUpdate = true;
+						subscriber.DailySteps = newSteps;
+						console.log('User '+subscriber.userID+'`s DailySteps has been updated to '+subscriber.DailySteps);
+						_updateDatabase(subscriber);
+					} else if (needFresh) {
+						_updateDatabase(subscriber);
+					} else {
+						console.log('User '+subscriber.userID+' doesn`t need update');
+					}
+		},function(err){console.log(err)});
+	
+	};
+
+
+		//update the data when needUpdate == true
+	var _updateDatabase = function(subscriber){
+		console.log('updating is needed: ' + needUpdate);
+		if (needUpdate) {
+			profileModel.updateOne({userID:subscriber.userID},{access_token:subscriber.access_token,
+     														   refresh_token:subscriber.refresh_token,
+     														   name:subscriber.name,
+     														   gender:subscriber.gender,
+     													       DailySteps:subscriber.DailySteps,
+     														   DailySleep:subscriber.DailySleep,
+     														   AverageHR:subscriber.AverageHR},
+		function(err,docs){
+			if(err) console.log(err);
+			console.log('successfully update');
+		});
+		}
+
+	};
+
 
 	this.syncProfile =function(){
+		_Getdata(checkingProfile);
 	};
-	var _Getdata = function(path,subscriber){
-		fitbit.get(path,subscriber.access_token)
-	}
-				console.log('UserId: '+checkingprofile.userID);
-				console.log('access_token: '+checkingprofile.name);
-				console.log('Date: '+_day);
-				console.log("   ");
+
+				//console.log('UserId: '+checkingprofile.userID);
+				//console.log('access_token: '+checkingprofile.name);
+				//console.log('Date: '+_day);
+			    //console.log("   ");
 }
 	
 // an interval function to refresh data during a certain time. currently let it run a time for 10 minutes
 setInterval(function(){
 		profileModel.find({},(err,profiles)=>{
 		profiles.forEach((profileModel)=>{
-			FitbitSync(profileModel);
+			new FitbitSync(profileModel).syncProfile();
 		});
 	});
-},6000);
+},10000);
 
 app.listen(3000);
 console.log('Server running at http:localhost:3000/');
