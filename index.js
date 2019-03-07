@@ -2,8 +2,8 @@
 Author : Jing Kang
 start at: 24/2/2019
 today date: 6/3/2019
-In Progress: fetching heartrate 
-
+status: in progress 
+problem solved: refresh token error
 */
 
 /*require packages*/
@@ -16,8 +16,8 @@ var cookieParser = require('cookie-parser');
 var moment = require('moment');
 
 /*Fitbit CLient password*/
-var CLIENT_ID = '22DCGZ';
-var CLIENT_SECRET = '9a9bc5ff34992717f7d7cc1f391a4268';
+var CLIENT_ID = '';
+var CLIENT_SECRET = '';
 var fitbit = new FitbitApiClient({
     clientId: CLIENT_ID,
     clientSecret: CLIENT_SECRET,
@@ -26,7 +26,7 @@ var fitbit = new FitbitApiClient({
 
 /*connect database and open*/
 var mongoose = require('mongoose');
-	mongoose.connect('mongodb+srv://Jing:mVWIu5idFBrQO38d@cluster0-fh0jl.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
+	mongoose.connect('mongodb+srv://Jing:@cluster0-fh0jl.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
 var db = mongoose.connection;
     db.on('error', console.error.bind(console, 'connection error:'));
     db.once('open', function (callback) {
@@ -135,13 +135,15 @@ var FitbitSync = function(subscr){
 	// // update activity data 
 	var _Getdata = function(subscriber){
 			//First, we try to get the data with the current access token available.
-if (subscriber.userID=='test') {
-	console.log('Here is a test data to avoid error');
-} else{
+		if (subscriber.userID=='test') {
+			console.log('Here is a test data to avoid error');
+			} else{
 			fitbit.get("/profile.json",subscriber.access_token).then(function(result){
 			console.log('Checking User '+subscriber.userID+' availability of access_token');
+
+
 			// check the token first
-			//  
+			//  (result[0].errors && result[0].errors.length > 0 && result[0].errors[0].errorType === 'expired_token')
 			if ((result[0].errors && result[0].errors.length > 0 && result[0].errors[0].errorType === 'expired_token')){
 				console.log('User '+subscriber.userID+' token expired, need to be refreshed');
 				fitbit.refreshAccessToken(subscriber.access_token,subscriber.refresh_token,28800).then(function(newtoken){
@@ -150,9 +152,8 @@ if (subscriber.userID=='test') {
 					subscriber.refresh_token = ' ';
 					subscriber.access_token = newtoken.access_token;
 					subscriber.refresh_token = newtoken.refresh_token;
-					needUpdate = true;
 					needFresh = true;
-					_GetHealthData(subscriber);
+					_updateTokens(subscriber);
 					
 				},function(err){
 					console.log(subscriber.userID+'`s data is  suffering a bug');
@@ -161,6 +162,7 @@ if (subscriber.userID=='test') {
 
 			} else {
 				console.log('User '+subscriber.userID+' Token is valid.');
+				console.log('Start to check User'+subscriber.userID+' `s health data...');
 				_GetHealthData(subscriber);
 				
 			}
@@ -173,48 +175,54 @@ if (subscriber.userID=='test') {
 	// update activity data 
 	var _GetHealthData = function(subscriber){
 		var newSteps;
-		var stepSets;
 		var newSleep;
-		var sleepSets;
+		var newHR;
 		// fetch steps
 		fitbit.get('/activities/date/' +_day + '.json',subscriber.access_token).then(function(result){
 			if ((result[0].errors && result[0].errors.length > 0 && result[0].errors[0].errorType === 'expired_token')) {
 				console.log('token expired');
 			}
-				
-				stepSets = result[0]['summary'];
+				 
 				//console.log(stepSets);
-				if (stepSets==undefined) {
-					console.log('Fail to fetch user '+subscriber.userID+'`steps due to undefined');
+				if (result[0]['summary'].steps==undefined) {
+					console.log('Fail to fetch user '+subscriber.userID+'`steps due to the user doesn`t start to use it.');
 					newSteps=0;
 				} else{
 
-					newSteps = stepSets['steps'];
+					newSteps = result[0]['summary']['steps'];
 				}
 				
 				///activities/heart/date/'+_day+'/1d/1sec.json
 				fitbit.get('/sleep/date/'+_day+'.json',subscriber.access_token).then(function(Sleep){
-							sleepSets = Sleep[0].summary;
 							//console.log(sleepSets);
-						if (sleepSets==undefined) {
-							console.log('Fail to fetch user '+subscriber.userID+'`sleep due to undefined');
+						if (Sleep[0].summary.totalMinutesAsleep==undefined) {
+							console.log('Fail to fetch user '+subscriber.userID+'`sleep due due to the user doesn`t start to use it.');
 							newSleep = 0;
 						} else {
-							newSleep = sleepSets.totalMinutesAsleep;
+							newSleep = Sleep[0].summary.totalMinutesAsleep;
 						}
-					if (newSteps!=subscriber.DailySteps||newSleep!=subscriber.DailySleep) {
-						needUpdate = true;
-						subscriber.DailySteps = newSteps;
-						subscriber.DailySleep = newSleep;
-						_updateDatabase(subscriber);
-						console.log('User '+subscriber.userID+'`s DailySteps has been updated to '+subscriber.DailySteps
-									+' totalAsleep time has been updated to'+subscriber.DailySleep);
-					} else if (needFresh) {
-						_updateDatabase(subscriber);
-						console.log('successfully refresh tokens for User: '+subscriber.userID);
-					} else {
-						console.log('User '+subscriber.userID+' doesn`t need update');
-					}
+						fitbit.get('/activities/heart/date/today/1d.json',subscriber.access_token).then(function(HR){
+								if (HR[0]['activities-heart'][0].value.restingHeartRate==undefined) {
+									console.log('Fail to fetch user '+subscriber.userID+'`HR due due to the user doesn`t start to use it.');
+									newHR = 0;
+								} else {
+									newHR = HR[0]['activities-heart'][0].value.restingHeartRate;
+								}
+						if (newSteps!=subscriber.DailySteps||newSleep!=subscriber.DailySleep||newHR!=subscriber.AverageHR) {
+									needUpdate = true;
+									subscriber.DailySteps = newSteps;
+									subscriber.DailySleep = newSleep;
+									subscriber.AverageHR = newHR;
+									_updateDatabase(subscriber);
+									console.log('User '+subscriber.userID+'`s DailySteps has been updated to '+subscriber.DailySteps);
+									console.log('TotalAsleep time has been updated to '+subscriber.DailySleep);
+									console.log('Average heartrate has been updated to '+subscriber.AverageHR);
+							}  else {
+									console.log('User '+subscriber.userID+' doesn`t need update');
+									}
+
+						},function(err){console.log(err)});
+				
 				},function(err){console.log(err)});
 
 
@@ -227,9 +235,7 @@ if (subscriber.userID=='test') {
 	var _updateDatabase = function(subscriber){
 		console.log('User: '+subscriber.userID+' `s data need to be updated');
 		if (needUpdate) {
-			profileModel.updateOne({userID:subscriber.userID},{access_token: subscriber.access_token,
-															   refresh_token: subscriber.refresh_token,
-     														   name:subscriber.name,
+			profileModel.updateOne({userID:subscriber.userID},{name:subscriber.name,
      														   gender:subscriber.gender,
      													       DailySteps:subscriber.DailySteps,
      														   DailySleep:subscriber.DailySleep,
@@ -241,6 +247,24 @@ if (subscriber.userID=='test') {
 		}
 
 	};
+
+
+		// update tokens when needFresh == true
+	var _updateTokens = function(subscriber){
+		console.log('User '+subscriber.userID+' '+subscriber.name+' `s token need to be refreshed: '+needFresh);
+		if(needFresh){
+			profileModel.updateOne({userID:subscriber.userID},{access_token: subscriber.access_token,
+															   refresh_token: subscriber.refresh_token},
+				function(err,docs){
+				if (err) {console.log(err);}
+				console.log('Successfully refresh the token for user '+subscriber.userID);
+			});
+		}
+		console.log('Start to check User'+subscriber.userID+' `s health data...');
+		_GetHealthData(subscriber);
+	}
+
+
 
 	this.syncProfile =function(){
 		_Getdata(checkingProfile);
@@ -302,5 +326,7 @@ setInterval(function(){
 	multiThreadingProfile();
 },600000);
 //1800000
+
+
 app.listen(3000);
 console.log('Server running at http:localhost:3000/');
