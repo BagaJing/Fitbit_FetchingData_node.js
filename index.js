@@ -1,9 +1,10 @@
 /*
 Author : Jing Kang
 start at: 24/2/2019
-today date: 6/3/2019
+today date: 11/3/2019
 status: in progress 
-problem solved: refresh token error
+Recent change:
+	create a bakup for access_token and refresh_token to avoid the failure of invalid_grant
 */
 
 /*require packages*/
@@ -16,8 +17,8 @@ var cookieParser = require('cookie-parser');
 var moment = require('moment');
 
 /*Fitbit CLient password*/
-var CLIENT_ID = '';
-var CLIENT_SECRET = '';
+var CLIENT_ID = '22DCGZ';
+var CLIENT_SECRET = '9a9bc5ff34992717f7d7cc1f391a4268';
 var fitbit = new FitbitApiClient({
     clientId: CLIENT_ID,
     clientSecret: CLIENT_SECRET,
@@ -26,7 +27,7 @@ var fitbit = new FitbitApiClient({
 
 /*connect database and open*/
 var mongoose = require('mongoose');
-	mongoose.connect('mongodb+srv://Jing:@cluster0-fh0jl.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
+	mongoose.connect('mongodb+srv://Suwarna_proj:1!Ambadas@clustermongodb-zj7du.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
 var db = mongoose.connection;
     db.on('error', console.error.bind(console, 'connection error:'));
     db.once('open', function (callback) {
@@ -40,12 +41,23 @@ var profile = mongoose.Schema({
      gender:{type:String},
      DailySteps:{type:Number},
      DailySleep:{type:Number},
-     AverageHR:{type:Number}
+     AverageHR:{type:Number},
+     updatedDate: { type: Date, default: Date.now }
     });
 var profileModel = mongoose.model('profile',profile);
 
+// access_token backup
+var backup = mongoose.Schema({
+	 access_token:{type:String},
+     refresh_token:{type:String},
+     userID:{type:String}
+});
+var backupModel = mongoose.model('acessBackup',backup);
 
 /*other variables*/
+
+// today date in YYYY-MM-DD format
+var _day= moment().format('YYYY-MM-DD');
 
 //running turns
 var runTurns = 1;
@@ -97,6 +109,15 @@ router.get("/callback", (req, res) => {
 																console.log('Acess Token: '+auth.access_token);
 																console.log('Refresh Token: '+auth.refresh_token);
 																});
+							// build backup for access token
+								var savebackup = new backupModel({access_token:auth.access_token,
+															      refresh_token:auth.refresh_token,
+															      userID:results[0].user.encodedId});
+									savebackup.save(function(err){
+																  if (err) return console.err(err);
+																  console.log('Building access backup finished.');
+																	});
+
 									res.send('Hello '+results[0].user.fullName+' !'
 					 							+'You have subscribed our service! Now you can close this page!');
 					 		}		
@@ -121,8 +142,7 @@ router.get("/callback", (req, res) => {
      AverageHR:{type:Number} 
 */
 var FitbitSync = function(subscr){
-	// today date in YYYY-MM-DD format
-	var _day= moment().format('YYYY-MM-DD');
+
 	// copy a collection to change and check
 	var checkingProfile = new profileModel(subscr);
 	//
@@ -138,26 +158,44 @@ var FitbitSync = function(subscr){
 		if (subscriber.userID=='test') {
 			console.log('Here is a test data to avoid error');
 			} else{
+
 			fitbit.get("/profile.json",subscriber.access_token).then(function(result){
 			console.log('Checking User '+subscriber.userID+' availability of access_token');
 
 
 			// check the token first
-			//  (result[0].errors && result[0].errors.length > 0 && result[0].errors[0].errorType === 'expired_token')
+			//(result[0].errors && result[0].errors.length > 0 && result[0].errors[0].errorType === 'expired_token')
 			if ((result[0].errors && result[0].errors.length > 0 && result[0].errors[0].errorType === 'expired_token')){
 				console.log('User '+subscriber.userID+' token expired, need to be refreshed');
 				fitbit.refreshAccessToken(subscriber.access_token,subscriber.refresh_token,28800).then(function(newtoken){
 					console.log(newtoken);
-					subscriber.access_token = ' ';
-					subscriber.refresh_token = ' ';
 					subscriber.access_token = newtoken.access_token;
 					subscriber.refresh_token = newtoken.refresh_token;
 					needFresh = true;
 					_updateTokens(subscriber);
 					
 				},function(err){
-					console.log(subscriber.userID+'`s data is  suffering a bug');
+					console.log(subscriber.userID+'`refresh token failed');
 					console.log(err.context);
+					backupModel.findOne({userID:subscriber.userID},function(err,doc){
+						if (doc) {
+							console.log('Start to use backup token for User '+subscriber.userID);
+							fitbit.refreshAccessToken(doc.access_token,doc.refresh_token,28800).then(function(newtoken){
+											console.log(newtoken);
+										subscriber.access_token = newtoken.access_token;
+										subscriber.refresh_token = newtoken.refresh_token;
+										needFresh = true;
+										_updateTokens(subscriber);
+								},function(err){
+										console.log(subscriber.userID+' using backup tokens failed');
+										console.log(err.context);
+										});
+								} else {
+									console.log('finding backup token failed');
+								}
+					});
+					
+
 				});
 
 			} else {
@@ -171,12 +209,12 @@ var FitbitSync = function(subscr){
 	};
 }
 
-
 	// update activity data 
 	var _GetHealthData = function(subscriber){
 		var newSteps;
 		var newSleep;
 		var newHR;
+		var stepsSets;
 		// fetch steps
 		fitbit.get('/activities/date/' +_day + '.json',subscriber.access_token).then(function(result){
 			if ((result[0].errors && result[0].errors.length > 0 && result[0].errors[0].errorType === 'expired_token')) {
@@ -184,7 +222,8 @@ var FitbitSync = function(subscr){
 			}
 				 
 				//console.log(stepSets);
-				if (result[0]['summary'].steps==undefined) {
+				stepSets = result[0]['summary'];
+				if (!stepSets.hasOwnProperty('steps')) {
 					console.log('Fail to fetch user '+subscriber.userID+'`steps due to the user doesn`t start to use it.');
 					newSteps=0;
 				} else{
@@ -195,14 +234,14 @@ var FitbitSync = function(subscr){
 				///activities/heart/date/'+_day+'/1d/1sec.json
 				fitbit.get('/sleep/date/'+_day+'.json',subscriber.access_token).then(function(Sleep){
 							//console.log(sleepSets);
-						if (Sleep[0].summary.totalMinutesAsleep==undefined) {
+						if (!Sleep[0].summary.hasOwnProperty('stages')) {
 							console.log('Fail to fetch user '+subscriber.userID+'`sleep due due to the user doesn`t start to use it.');
 							newSleep = 0;
 						} else {
 							newSleep = Sleep[0].summary.totalMinutesAsleep;
 						}
 						fitbit.get('/activities/heart/date/today/1d.json',subscriber.access_token).then(function(HR){
-								if (HR[0]['activities-heart'][0].value.restingHeartRate==undefined) {
+								if (!HR[0]['activities-heart'][0].value.hasOwnProperty('restingHeartRate')) {
 									console.log('Fail to fetch user '+subscriber.userID+'`HR due due to the user doesn`t start to use it.');
 									newHR = 0;
 								} else {
@@ -239,7 +278,8 @@ var FitbitSync = function(subscr){
      														   gender:subscriber.gender,
      													       DailySteps:subscriber.DailySteps,
      														   DailySleep:subscriber.DailySleep,
-     														   AverageHR:subscriber.AverageHR},
+     														   AverageHR:subscriber.AverageHR,
+     														   updatedDate: new Date},
 		function(err,docs){
 			if(err) console.log(err);
 			console.log('Successfully update for User '+subscriber.userID);
@@ -250,7 +290,7 @@ var FitbitSync = function(subscr){
 
 
 		// update tokens when needFresh == true
-	var _updateTokens = function(subscriber){
+	var _updateTokens = function(subscriber,Backup){
 		console.log('User '+subscriber.userID+' '+subscriber.name+' `s token need to be refreshed: '+needFresh);
 		if(needFresh){
 			profileModel.updateOne({userID:subscriber.userID},{access_token: subscriber.access_token,
@@ -259,10 +299,16 @@ var FitbitSync = function(subscr){
 				if (err) {console.log(err);}
 				console.log('Successfully refresh the token for user '+subscriber.userID);
 			});
+
+			backupModel.updateOne({userID:subscriber.userID},{access_token: subscriber.access_token,
+															   refresh_token: subscriber.refresh_token},
+				function(err,docs){
+				if (err) {console.log(err);}
+			});
 		}
 		console.log('Start to check User'+subscriber.userID+' `s health data...');
 		_GetHealthData(subscriber);
-	}
+	};
 
 
 
@@ -319,12 +365,12 @@ function  multiThreadingProfile() {
 }
 
 
-
 multiThreadingProfile();
 /* an interval function to refresh data during a certain time. currently let it run a time for half hour*/
 setInterval(function(){
 	multiThreadingProfile();
 },600000);
+
 //1800000
 
 
