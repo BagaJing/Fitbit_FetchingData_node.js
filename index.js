@@ -18,8 +18,8 @@ var moment = require('moment');
 var clog = require('c-log');
 
 /*Fitbit CLient password*/
-var CLIENT_ID = '22DCGZ';
-var CLIENT_SECRET = '9a9bc5ff34992717f7d7cc1f391a4268';
+var CLIENT_ID = '';
+var CLIENT_SECRET = '';
 var fitbit = new FitbitApiClient({
     clientId: CLIENT_ID,
     clientSecret: CLIENT_SECRET,
@@ -28,7 +28,7 @@ var fitbit = new FitbitApiClient({
 
 /*connect database and open*/
 var mongoose = require('mongoose');
-	mongoose.connect('mongodb+srv://Suwarna_proj:1!Ambadas@clustermongodb-zj7du.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
+	mongoose.connect('mongodb+srv://Suwarna_proj:@clustermongodb-zj7du.mongodb.net/test?retryWrites=true',{ useNewUrlParser: true });
 var db = mongoose.connection;
     db.on('error', console.error.bind(console, 'connection error:'));
     db.once('open', function (callback) {
