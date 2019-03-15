@@ -2,9 +2,16 @@
 This is a in-progress project that fetch health data from fitbit api and save it into mongodb
 then async the data with access_token
 
-For index.js, it is the program running on local server.
-For app.js and lambda.js, they are program we try to deploy on lambda function.(In progress)
+Description:
 
-The link for AWS API gateway that we are using here is:
-https://lfm06u0hlc.execute-api.us-east-1.amazonaws.com/dev/auth/:userId
-The user's data will be saved in mongodb when the user do login.
+1.localserver.js is the code tested on terminal without lambda func (runing on localhost:/3000)
+
+2.lambda_sync(local_testing).js is the health data sync funtion tested on terminal with "lambda-local"
+
+3.lambda_sync(deployed).js is the health data sync funtion that is currently deployed on AWS lambda
+
+4.login.js&&login_deploy.js include the function to let user login and get their personal data and save them in mogodb.
+    Deployed URL: https://n4cj09nlc1.execute-api.us-east-1.amazonaws.com/xWell/auth/:userId
+    
+    
+ To be continued...
